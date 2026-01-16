@@ -55,6 +55,16 @@ public class BlockingConnectionHandler<T> implements Runnable, ConnectionHandler
 
     @Override
     public void send(T msg) {
-        //IMPLEMENT IF NEEDED
+        if (msg != null) {
+            try {
+                // We synchronize to prevent corruption if multiple threads try to send simultaneously
+                synchronized (out) { 
+                    out.write(encdec.encode(msg));
+                    out.flush();
+                }
+            } catch (IOException ex) {
+                ex.printStackTrace();
+            }
+        }
     }
 }
