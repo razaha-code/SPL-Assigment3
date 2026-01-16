@@ -9,7 +9,7 @@ import java.io.BufferedOutputStream;
 import java.io.IOException;
 import java.net.Socket;
 
-public class ConnectionHandlerImpl<T> implements ConnectionHandler<T> {
+public class ConnectionHandlerImpl<T> implements ConnectionHandler<T>, Runnable {
 
     private final StompMessagingProtocol<T> protocol;
     private final MessageEncoderDecoder<T> encdec;
