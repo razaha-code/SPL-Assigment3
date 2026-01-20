@@ -6,6 +6,13 @@
     "configurations": [
         {
             "type": "java",
+            "name": "TestDB",
+            "request": "launch",
+            "mainClass": "bgu.spl.net.srv.TestDB",
+            "projectName": "server"
+        },
+        {
+            "type": "java",
             "name": "Launch EchoServer",
             "request": "launch",
             "mainClass": "bgu.spl.net.impl.echo.EchoServer",
@@ -42,7 +49,10 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/client/bin/EchoClient",
-            "args": ["127.0.0.1", "7777"],
+            "args": [
+                "127.0.0.1",
+                "7777"
+            ],
             "stopAtEntry": false,
             "cwd": "${fileDirname}",
             "environment": [],

@@ -6,11 +6,15 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 
+import bgu.spl.net.impl.data.Database;
+import bgu.spl.net.impl.data.LoginStatus;
+
 public class StompMessagingProtocolImpl implements StompMessagingProtocol<String> {
 
     private int connectionId;
     private Connections<String> connections;
     private boolean shouldTerminate = false;
+    private String currentUsername = null;
     
     // Map to track subscriptions for THIS client: SubscriptionID -> ChannelName
     // This helps us when the client sends UNSUBSCRIBE id:X (we need to know which channel X belonged to)
@@ -67,28 +71,38 @@ public class StompMessagingProtocolImpl implements StompMessagingProtocol<String
     private void handleConnect(Map<String, String> headers) {
         String login = headers.get("login");
         String passcode = headers.get("passcode");
-        
+
         if (login == null || passcode == null) {
-            sendError(headers, "Malformed Frame", "Missing login or passcode");
+            sendError(headers, "Malformed Frame", "Missing login or passcode header");
             return;
         }
 
-        UserDatabase db = UserDatabase.getInstance();
-        
-        // Registration / Login logic
-        if (!db.isUserExists(login)) {
-            db.register(login, passcode);
-        } else if (!db.validatePassword(login, passcode)) {
-            sendError(headers, "Login Failed", "Wrong password");
-            return;
-        }
+        // Delegate the login logic to the Database singleton
+        // This handles checking the password, creating new users, and locking the session
+        LoginStatus status = Database.getInstance().login(connectionId, login, passcode);
 
-        if (!db.login(login)) {
-            sendError(headers, "Login Failed", "User already logged in");
-            return;
+        if (status == LoginStatus.LOGGED_IN_SUCCESSFULLY || status == LoginStatus.ADDED_NEW_USER) {
+            // 1. Success Case
+            this.currentUsername = login;
+            
+            String response = "CONNECTED\n" +
+                            "version:1.2\n" +
+                            "\n" + 
+                            "\u0000";
+            connections.send(connectionId, response);
+            
+        } else if (status == LoginStatus.WRONG_PASSWORD) {
+            // 2. Wrong Password
+            sendError(headers, "Bad Credentials", "Password does not match");
+            
+        } else if (status == LoginStatus.ALREADY_LOGGED_IN) {
+            // 3. User is already active on another client
+            sendError(headers, "User already logged in", "User " + login + " is already active");
+            
+        } else if (status == LoginStatus.CLIENT_ALREADY_CONNECTED) {
+            // 4. This specific client connection is already authenticated
+            sendError(headers, "Client already connected", "You are already logged in on this connection");
         }
-
-        connections.send(connectionId, "CONNECTED\nversion:1.2\n\n\u0000");
     }
 
     private void handleSubscribe(Map<String, String> headers) {
@@ -123,25 +137,48 @@ public class StompMessagingProtocolImpl implements StompMessagingProtocol<String
 
     private void handleSend(Map<String, String> headers, String body) {
         String destination = headers.get("destination");
+        
+        // 1. Basic validation
         if (destination == null) {
-            sendError(headers, "Malformed Frame", "Missing destination");
+            sendError(headers, "Malformed Frame", "Missing destination header");
             return;
         }
 
-        // We prepare the message WITHOUT the subscription-id header and WITHOUT \u0000
-        // ConnectionsImpl will add them for each client
-        String frameBase = "MESSAGE\n" +
-                           "destination:" + destination + "\n" +
-                           "message-id:" + System.currentTimeMillis() + "\n" +
-                           "\n" + // Empty line before body
-                           body;  // Note: NO \u0000 at the end here, ConnectionsImpl adds it!
+        // 2. Database Integration: File Tracking
+        // We look for the extra header "file-name" that the Client should send.
+        // If it exists, it means this message is part of a file report.
+        String filename = headers.get("file-name"); 
         
-        connections.send(destination, frameBase);
+        if (filename != null && currentUsername != null) {
+            // We delegate the saving to the Database class.
+            // Note: The Database class will execute "INSERT INTO file_tracking ..."
+            Database.getInstance().trackFileUpload(currentUsername, filename, destination);
+        }
+
+        // 3. Broadcast the message to all subscribers
+        // The server adds a message-id and sends it to everyone subscribed to this topic.
+        String messageFrame = "MESSAGE\n" + 
+                            "subscription:0\n" + // In a real impl, you'd map subId to user
+                            "message-id:" + java.util.UUID.randomUUID().toString() + "\n" +
+                            "destination:" + destination + "\n" +
+                            "\n" + 
+                            body + "\u0000";
+
+        connections.send(destination, messageFrame);
     }
 
     private void handleDisconnect(Map<String, String> headers) {
-        // Just cleanup, the actual disconnect happens after sending Receipt
-        // You might want to remove user from UserDatabase (logout) here
+        String receiptId = headers.get("receipt");
+        if (receiptId != null) {
+            connections.send(connectionId, "RECEIPT\nreceipt-id:" + receiptId + "\n\n\u0000");
+        }
+
+        // IMPORTANT: Update the database to record the logout timestamp
+        Database.getInstance().logout(connectionId);
+        
+        this.currentUsername = null;
+        this.shouldTerminate = true;
+        connections.disconnect(connectionId);
     }
 
     private void sendError(Map<String, String> headers, String errMsg, String desc) {

@@ -1,6 +1,8 @@
 package bgu.spl.net.impl.stomp;
 
+import bgu.spl.net.impl.data.Database;
 import bgu.spl.net.srv.Server;
+import java.util.Scanner;
 
 public class StompServer {
 
@@ -14,21 +16,38 @@ public class StompServer {
         int port = Integer.parseInt(args[0]); // The port to listen on
         String serverType = args[1];          // "tpc" or "reactor"
 
+        // --- KEYBOARD LISTENER THREAD ---
+        // This runs in parallel to the server to handle the "report" command
+        new Thread(() -> {
+            Scanner scanner = new Scanner(System.in);
+            System.out.println("Server started. Type 'report' to see database stats, or 'exit' to stop.");
+            
+            while (scanner.hasNextLine()) {
+                String line = scanner.nextLine().trim();
+                if (line.equalsIgnoreCase("report")) {
+                    // Prints the SQL report using the existing Database logic
+                    Database.getInstance().printReport();
+                } else if (line.equalsIgnoreCase("exit")) {
+                    System.out.println("Shutting down...");
+                    System.exit(0);
+                }
+            }
+        }).start();
+
+        // --- START SERVER ---
         if (serverType.equals("tpc")) {
-            // Run Thread-Per-Client Server
             Server.threadPerClient(
                     port,
                     () -> new StompMessagingProtocolImpl(), // Protocol factory
-                    () -> new StompMessageEncoderDecoder()  // Decoder factory
+                    StompMessageEncoderDecoder::new  // Decoder factory
             ).serve();
 
         } else if (serverType.equals("reactor")) {
-            // Run Reactor Server
             Server.reactor(
                     Runtime.getRuntime().availableProcessors(), // Number of threads
                     port,
                     () -> new StompMessagingProtocolImpl(), // Protocol factory
-                    () -> new StompMessageEncoderDecoder()  // Decoder factory
+                    StompMessageEncoderDecoder::new  // Decoder factory
             ).serve();
 
         } else {
