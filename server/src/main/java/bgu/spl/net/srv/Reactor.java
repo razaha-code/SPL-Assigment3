@@ -2,6 +2,8 @@ package bgu.spl.net.srv;
 
 import bgu.spl.net.api.MessageEncoderDecoder;
 import bgu.spl.net.api.MessagingProtocol;
+import bgu.spl.net.impl.stomp.ConnectionsImpl;
+
 import java.io.IOException;
 import java.net.InetSocketAddress;
 import java.nio.channels.ClosedSelectorException;
@@ -19,6 +21,8 @@ public class Reactor<T> implements Server<T> {
     private final Supplier<MessageEncoderDecoder<T>> readerFactory;
     private final ActorThreadPool pool;
     private Selector selector;
+    private ConnectionsImpl<T>  connections;
+    private int connectionIdCounter = 0;
 
     private Thread selectorThread;
     private final ConcurrentLinkedQueue<Runnable> selectorTasks = new ConcurrentLinkedQueue<>();
@@ -32,14 +36,16 @@ public class Reactor<T> implements Server<T> {
         this.pool = new ActorThreadPool(numThreads);
         this.port = port;
         this.protocolFactory = protocolFactory;
+        this.connections = new ConnectionsImpl<>();
         this.readerFactory = readerFactory;
     }
 
     @Override
     public void serve() {
 	selectorThread = Thread.currentThread();
-        try (Selector selector = Selector.open();
-                ServerSocketChannel serverSock = ServerSocketChannel.open()) {
+        try (
+            Selector selector = Selector.open();
+            ServerSocketChannel serverSock = ServerSocketChannel.open()) {
 
             this.selector = selector; //just to be able to close
 
@@ -95,13 +101,26 @@ public class Reactor<T> implements Server<T> {
     private void handleAccept(ServerSocketChannel serverChan, Selector selector) throws IOException {
         SocketChannel clientChan = serverChan.accept();
         clientChan.configureBlocking(false);
+        MessageEncoderDecoder<T> encode = readerFactory.get();
+        MessagingProtocol<T> protocol = protocolFactory.get();
+           if (protocol instanceof bgu.spl.net.api.StompMessagingProtocol) {
+                    // כאן אנחנו "מכריחים" את הג'אווה להתייחס אליו כ-StompMessagingProtocol
+                    ((bgu.spl.net.api.StompMessagingProtocol<T>) protocol).start(connectionIdCounter, connections);
+                }           
+
         final NonBlockingConnectionHandler<T> handler = new NonBlockingConnectionHandler<>(
-                readerFactory.get(),
-                protocolFactory.get(),
+                encode,
+                protocol,
                 clientChan,
                 this);
+        connections.addConnection(connectionIdCounter, handler);
+        connectionIdCounter++;
         clientChan.register(selector, SelectionKey.OP_READ, handler);
+
+
     }
+
+
 
     private void handleReadWrite(SelectionKey key) {
         @SuppressWarnings("unchecked")
