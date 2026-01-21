@@ -139,10 +139,11 @@
             });
 
             for (const Event& event : parsedData.events) {
-                saveEvent(gameName, activeUser, event);
+                // saveEvent(gameName, activeUser, event);
 
                 std::string frame = "SEND\n";
                 frame += "destination:/" + gameName + "\n";
+                frame += "file-name:" + file + "\n";
                 frame += "\n";
                 frame += "user:" + activeUser + "\n";
                 frame += "team a:" + parsedData.team_a_name + "\n";
@@ -344,19 +345,22 @@
     }
 
     void StompProtocol::saveEvent(const std::string& gameName, const std::string& sender, const Event& event) {
-    auto& eventsVector = totalEvents[gameName][sender];
-    eventsVector.push_back(event);
+        auto& eventsVector = totalEvents[gameName][sender];
+        for (const Event& existingEvent : eventsVector) {
+        if (existingEvent.get_name() == event.get_name() &&
+            existingEvent.get_time() == event.get_time() &&
+            existingEvent.get_discription() == event.get_discription()) {
+            return; // האירוע כבר קיים, לא מוסיפים אותו שוב
+            }
+        }
+        eventsVector.push_back(event);
 
-    // לשמור את ההיסטוריה תמיד ממויינת (כדי ש-summary יהיה נכון)
-    std::stable_sort(eventsVector.begin(), eventsVector.end(),
+        // לשמור את ההיסטוריה תמיד ממויינת לפי זמן המשחק
+        std::stable_sort(eventsVector.begin(), eventsVector.end(),
         [](const Event& a, const Event& b) {
-            bool aBefore = isBeforeHalftime(a);
-            bool bBefore = isBeforeHalftime(b);
-
-            if (aBefore != bBefore) return aBefore;   // לפני מחצית קודם
-            return a.get_time() < b.get_time();       // ואז לפי זמן
+            return a.get_time() < b.get_time();
         });
-}
+    }
 
     Event StompProtocol::parseEventBody(const std::string& body) {
         std::stringstream ss(body);
