@@ -1,16 +1,9 @@
 package bgu.spl.net.impl.stomp;
 
-import java.util.LinkedList;
 import java.util.Map;
-import java.util.Set;
-
+import java.util.concurrent.ConcurrentHashMap;
 import bgu.spl.net.srv.ConnectionHandler;
 import bgu.spl.net.srv.Connections;
-
-import java.util.concurrent.ConcurrentHashMap;
-
-
-
 
 public class ConnectionsImpl<T> implements Connections<T> {
 
@@ -28,21 +21,20 @@ public class ConnectionsImpl<T> implements Connections<T> {
         if (handler == null) {
             return false;
         }
-        try { handler.send(msg);
-        return true; }
-        catch (Exception e) {
+        try {
+            handler.send(msg);
+            return true;
+        } catch (Exception e) {
             return false;
         }
     }
-
 
     @Override
     public void send(String channel, T msg) {
         ConcurrentHashMap<Integer, Integer> subscribers = channelSubscribers.get(channel);
 
         if (subscribers != null) {
-            for (
-                Map.Entry<Integer, Integer> entry : subscribers.entrySet()) {
+            for (Map.Entry<Integer, Integer> entry : subscribers.entrySet()) {
                 Integer connectionId = entry.getKey();
                 Integer subscriptionId = entry.getValue();
 
@@ -65,7 +57,6 @@ public class ConnectionsImpl<T> implements Connections<T> {
                                  "\n\n\u0000";
                 }
 
-                // Send the specific frame to the specific client
                 send(connectionId, (T) finalFrame);
             }
         }
@@ -80,14 +71,11 @@ public class ConnectionsImpl<T> implements Connections<T> {
         }
     }
     
-    // פונקציות עזר שתוסיף כדי שהפרוטוקול יוכל לרשום משתמשים:
-    
     public void addConnection(int connectionId, ConnectionHandler<T> handler) {
         activeConnections.put(connectionId, handler);
     }
 
     public void subscribe(String channel, int connectionId, int subscriptionId) {
-        // שימוש ב-computeIfAbsent כדי ליצור את המפה הפנימית אם היא לא קיימת (Thread Safe)
         channelSubscribers.computeIfAbsent(channel, k -> new ConcurrentHashMap<>())
                           .put(connectionId, subscriptionId);
     }
